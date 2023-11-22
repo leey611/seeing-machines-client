@@ -1,7 +1,8 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { Suspense } from 'react'
+import { useEffect, Suspense } from 'react'
+import * as OSC from 'osc-js';
 
 const Logo = dynamic(() => import('@/components/canvas/Examples').then((mod) => mod.Logo), { ssr: false })
 const Dog = dynamic(() => import('@/components/canvas/Examples').then((mod) => mod.Dog), { ssr: false })
@@ -24,6 +25,32 @@ const View = dynamic(() => import('@/components/canvas/View').then((mod) => mod.
 const Common = dynamic(() => import('@/components/canvas/View').then((mod) => mod.Common), { ssr: false })
 
 export default function Page() {
+  useEffect(() => {
+    const socket = new WebSocket('ws://localhost:8080');
+
+    socket.addEventListener('open', (event) => {
+      console.log('WebSocket connection opened:', event);
+    });
+
+    socket.addEventListener('message', (event) => {
+      const oscMessage = JSON.parse(event.data);
+      console.log('Received OSC message:', oscMessage);
+      // Handle the received OSC message in your React component
+    });
+
+    socket.addEventListener('close', (event) => {
+      console.log('WebSocket connection closed:', event);
+    });
+
+    socket.addEventListener('error', (event) => {
+      console.error('WebSocket error:', event);
+    });
+
+    // Cleanup on component unmount
+    return () => {
+      socket.close();
+    };
+  }, []);
   return (
     <>
       <div className='mx-auto flex w-full flex-col flex-wrap items-center md:flex-row  lg:w-4/5'>
