@@ -1,7 +1,10 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
+import { useThree } from '@react-three/fiber';
+import { gsap } from "gsap";
+import { useMousePosition } from 'utils';
 
 const View = dynamic(() => import('@/components/canvas/View').then((mod) => mod.View), {
   ssr: false,
@@ -71,12 +74,42 @@ export default function Page() {
 
 function Board(props) {
   const { position } = props
-  const [scale] = useState([0.8, 0.8, 0.2])
+  //const { raycaster } = useThree()
+  const { direction } = useMousePosition()
+  const [scale] = useState([0.9, 0.9, 0.2])
+  const [near, setNear] = useState({ near: false, hover: false })
+  const ref = useRef()
+
+  // useEffect(() => {
+  //   if (raycaster.params.Points) {
+  //     raycaster.params.Points.threshold = 0.1;
+  //   }
+  // }, []);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    if (near.near) {
+      gsap.to(ref.current.rotation, {
+        y: direction === 'right' ? `+=${Math.PI}` : `-=${Math.PI}`,
+        ease: "elastic.out",
+        delay: 0.03,
+        duration: 3,
+        onComplete: () => {
+          setNear(prev => ({ ...prev, near: false }))
+        },
+      });
+    }
+  }, [near.near])
   return (
-    <mesh position={position} scale={scale}>
+    <mesh
+      ref={ref}
+      position={position}
+      scale={scale}
+      onPointerMove={() => { setNear({ near: true, hover: true }) }}
+      onPointerOut={() => { setNear(prev => ({ ...prev, hover: false })) }}
+    >
       <boxGeometry />
-      {/* <meshStandardMaterial /> */}
-      <meshNormalMaterial />
+      <meshStandardMaterial color={near.hover ? "red" : "yellow"} />
     </mesh>
   )
 }
