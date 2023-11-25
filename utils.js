@@ -7,7 +7,11 @@ export const useMousePosition = () => {
     React.useEffect(() => {
         const updateMousePosition = ev => {
             let direction
-            console.log(ev.movementX, ev.movementY)
+            let movementX = Math.abs(ev.movementX)
+            let movementY = Math.abs(ev.movementY)
+            let movement = movementX > movementY ? movementX * 5 : movementY * 5
+            //console.log(ev.movementX, ev.movementY)
+            //console.log(movement)
             if (ev.movementX > 0 || ev.movementY > 0) {
                 direction = 'right'
             } else if (ev.movementX < 0 || ev.movementY < 0) {
@@ -17,7 +21,8 @@ export const useMousePosition = () => {
                 ...prev,
                 x: ev.clientX,
                 y: ev.clientY,
-                direction
+                direction,
+                movement
             }))
         };
         window.addEventListener('mousemove', updateMousePosition);

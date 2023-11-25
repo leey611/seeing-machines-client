@@ -24,20 +24,46 @@ const View = dynamic(() => import('@/components/canvas/View').then((mod) => mod.
 const Common = dynamic(() => import('@/components/canvas/View').then((mod) => mod.Common), { ssr: false })
 
 export default function Page() {
-  const [boards, setBoards] = useState([])
+  const [boards, setBoards] = useState([]);
+
+  // Game state
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [amountOfTilesCompleted, setAmountOfTilesCompleted] = useState(0);
+  console.log(amountOfTilesCompleted)
   function createBoards() {
     const boardArray = []
-    for (let x = -5; x < 5; x++) {
-      for (let y = -5; y < 5; y++) {
+    for (let x = -10; x < 10; x++) {
+      for (let y = -10; y < 10; y++) {
         boardArray.push([x, y, 0])
       }
     }
     setBoards(boardArray)
   }
 
+  const fetchData = async () => {
+    const response = await fetch("/");
+    const jsonData = await response.json();
+    // setState here!
+  }
+
+  useEffect(() => {
+
+    // if (amountOfTilesCompleted === amountofRedTiles) setIsCompleted(true);
+  }, [amountOfTilesCompleted]);
+
   useEffect(() => {
     createBoards()
     const socket = new WebSocket('ws://localhost:8080');
+
+    // fetchData()
+    // fetch gives us the first promise
+    // response in fetch.json() gives us a second promise
+
+    // const data = fetch("/")
+    //   .then(res => {
+    //     // This is a 2nd promise
+    //     res.json().then(d => console.log(d))
+    //   });
 
     socket.addEventListener('open', (event) => {
       console.log('WebSocket connection opened:', event);
@@ -66,36 +92,49 @@ export default function Page() {
     <>
       <View orbit className='relative h-full  w-full'>
         <Common color={'black'} />
-        {boards?.map((board, i) => <Board position={board} key={i} />)}
+        {boards?.map((board, i) => <Board onComplete={setAmountOfTilesCompleted} position={board} key={i} />)}
       </View>
     </>
   )
 }
 
+const rotationTimeMap = (movement) => {
+  let level = { count: 1, duration: 4 }
+  if (movement < 100) {
+    level = { count: 1, duration: 4 }
+  } else if (movement >= 100 && movement < 300) {
+    level = { count: 2, duration: 3 }
+  } else if (movement > 300) {
+    level = { count: 3, duration: 3.5 }
+  }
+  return level
+}
+
 function Board(props) {
-  const { position } = props
-  //const { raycaster } = useThree()
-  const { direction } = useMousePosition()
+  const { position, onComplete } = props
+  //console.log('mouse', mouse)
+  const { direction, movement } = useMousePosition()
+  const { count, duration } = rotationTimeMap(movement)//rotationTransformer(movement)
+
+  //console.log(movement, rotationTimeMap(movement))
   const [scale] = useState([0.9, 0.9, 0.2])
   const [near, setNear] = useState({ near: false, hover: false })
   const ref = useRef()
-
-  // useEffect(() => {
-  //   if (raycaster.params.Points) {
-  //     raycaster.params.Points.threshold = 0.1;
-  //   }
-  // }, []);
 
   useEffect(() => {
     if (!ref.current) return;
     if (near.near) {
       gsap.to(ref.current.rotation, {
-        y: direction === 'right' ? `+=${Math.PI}` : `-=${Math.PI}`,
+        y: direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
         ease: "elastic.out",
         delay: 0.03,
-        duration: 3,
+        // stagger: 2,
+        duration,
         onComplete: () => {
           setNear(prev => ({ ...prev, near: false }))
+
+          // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
+          //onComplete(value => value + 1);
         },
       });
     }
@@ -105,7 +144,7 @@ function Board(props) {
       ref={ref}
       position={position}
       scale={scale}
-      onPointerMove={() => { setNear({ near: true, hover: true }) }}
+      onPointerEnter={() => { setNear({ near: true, hover: true }) }}
       onPointerOut={() => { setNear(prev => ({ ...prev, hover: false })) }}
     >
       <boxGeometry />
