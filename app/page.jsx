@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useEffect, useRef, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense, forwardRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber';
 import { gsap } from "gsap";
 import { useMousePosition } from 'utils';
@@ -26,7 +26,7 @@ const Common = dynamic(() => import('@/components/canvas/View').then((mod) => mo
 
 export default function Page() {
   const [boards, setBoards] = useState([]);
-
+  const walkerRef = useRef()
   // Game state
   const [isCompleted, setIsCompleted] = useState(false);
   const [amountOfTilesCompleted, setAmountOfTilesCompleted] = useState(0);
@@ -93,8 +93,8 @@ export default function Page() {
     <>
       <View orbit className='relative h-full  w-full'>
         <Common color={'black'} />
-        {boards?.map((board, i) => <Board onComplete={setAmountOfTilesCompleted} position={board} key={i} />)}
-        <Walker />
+        {boards?.map((board, i) => <Board onComplete={setAmountOfTilesCompleted} position={board} key={i} ref={walkerRef} />)}
+        <Walker ref={walkerRef} />
       </View>
     </>
   )
@@ -111,27 +111,35 @@ const rotationTimeMap = (movement) => {
   }
   return level
 }
-
-function Board(props) {
-  const { position, onComplete } = props
+const Board = forwardRef(function (props, ref) {
+  const { position, onComplete, walkerPos } = props
   //console.log('mouse', mouse)
-  const { direction, movement } = useMousePosition()
-  const { count, duration } = rotationTimeMap(movement)//rotationTransformer(movement)
+  //const { direction, movement } = useMousePosition()
+  //const { count, duration } = rotationTimeMap(movement)//rotationTransformer(movement)
 
   //console.log(movement, rotationTimeMap(movement))
   const [scale] = useState([0.9, 0.9, 0.2])
   const [near, setNear] = useState({ near: false, hover: false })
-  const ref = useRef()
-
+  const boardRef = useRef()
+  useFrame(() => {
+    const boardVec = new Vector3(boardRef.current.position.x, boardRef.current.position.y, boardRef.current.position.z)
+    const walkerPosVec = new Vector3(ref.current.position.x, ref.current.position.y, ref.current.position.z)
+    const distance = walkerPosVec.distanceTo(boardVec)
+    if (distance < 0.5) {
+      setNear({ near: true, hover: true })
+    } else {
+      setNear(prev => ({ ...prev, hover: false }))
+    }
+  })
   useEffect(() => {
-    if (!ref.current) return;
+    if (!boardRef.current) return;
     if (near.near) {
-      gsap.to(ref.current.rotation, {
-        y: direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
+      gsap.to(boardRef.current.rotation, {
+        y: `+=${Math.PI}`,//direction === 'right' ? `+=${Math.PI}` : `-=${Math.PI}`,
         ease: "elastic.out",
         delay: 0.03,
         // stagger: 2,
-        duration,
+        duration: 3,
         onComplete: () => {
           setNear(prev => ({ ...prev, near: false }))
 
@@ -143,17 +151,57 @@ function Board(props) {
   }, [near.near])
   return (
     <mesh
-      ref={ref}
+      ref={boardRef}
       position={position}
       scale={scale}
-      onPointerEnter={() => { setNear({ near: true, hover: true }) }}
-      onPointerOut={() => { setNear(prev => ({ ...prev, hover: false })) }}
     >
       <boxGeometry />
       <meshStandardMaterial color={near.hover ? "red" : "yellow"} />
     </mesh>
   )
-}
+})
+// function Board(props) {
+//   const { position, onComplete, walkerPos } = props
+//   //console.log('mouse', mouse)
+//   const { direction, movement } = useMousePosition()
+//   const { count, duration } = rotationTimeMap(movement)//rotationTransformer(movement)
+
+//   //console.log(movement, rotationTimeMap(movement))
+//   const [scale] = useState([0.9, 0.9, 0.2])
+//   const [near, setNear] = useState({ near: false, hover: false })
+//   const ref = useRef()
+
+//   useEffect(() => {
+//     if (!ref.current) return;
+//     if (near.near) {
+//       gsap.to(ref.current.rotation, {
+//         y: direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
+//         ease: "elastic.out",
+//         delay: 0.03,
+//         // stagger: 2,
+//         duration,
+//         onComplete: () => {
+//           setNear(prev => ({ ...prev, near: false }))
+
+//           // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
+//           //onComplete(value => value + 1);
+//         },
+//       });
+//     }
+//   }, [near.near])
+//   return (
+//     <mesh
+//       ref={ref}
+//       position={position}
+//       scale={scale}
+//       onPointerEnter={() => { setNear({ near: true, hover: true }) }}
+//       onPointerOut={() => { setNear(prev => ({ ...prev, hover: false })) }}
+//     >
+//       <boxGeometry />
+//       <meshStandardMaterial color={near.hover ? "red" : "yellow"} />
+//     </mesh>
+//   )
+// }
 
 function generateRandomPosition() {
   return new Vector3(
@@ -163,8 +211,7 @@ function generateRandomPosition() {
   );
 }
 
-function Walker(props) {
-  const walkerRef = useRef();
+const Walker = forwardRef(function (props, ref) {
   const [targetPosition, setTargetPosition] = useState(generateRandomPosition());
   const [lerpFactor, setLerpFactor] = useState(0);
 
@@ -174,13 +221,13 @@ function Walker(props) {
 
     // Lerp towards the target position
     const newPosition = new Vector3().lerpVectors(
-      walkerRef.current.position,
+      ref.current.position,
       targetPosition,
       lerpFactor
     );
 
     // Update sphere position
-    walkerRef.current.position.copy(newPosition);
+    ref.current.position.copy(newPosition);
 
     // If lerp is complete, generate a new random target position
     if (lerpFactor === 1) {
@@ -188,13 +235,46 @@ function Walker(props) {
       setLerpFactor(0);
     }
   });
-
   return (
-    <mesh ref={walkerRef} position={walkerRef.current ? walkerRef.current.position : [0, 0, 0]} scale={[0.5, 0.5, 0.5]}>
+    <mesh ref={ref} position={ref.current ? ref.current.position : [0, 0, 0]} scale={[0.5, 0.5, 0.5]}>
       <sphereGeometry />
       <meshNormalMaterial />
     </mesh>
   );
-}
+})
+
+// function Walker(props) {
+//   const walkerRef = useRef();
+//   const [targetPosition, setTargetPosition] = useState(generateRandomPosition());
+//   const [lerpFactor, setLerpFactor] = useState(0);
+
+//   useFrame(() => {
+//     // Increment lerp factor
+//     setLerpFactor((prevFactor) => Math.min(prevFactor + 0.01, 1));
+
+//     // Lerp towards the target position
+//     const newPosition = new Vector3().lerpVectors(
+//       walkerRef.current.position,
+//       targetPosition,
+//       lerpFactor
+//     );
+
+//     // Update sphere position
+//     walkerRef.current.position.copy(newPosition);
+
+//     // If lerp is complete, generate a new random target position
+//     if (lerpFactor === 1) {
+//       setTargetPosition(generateRandomPosition());
+//       setLerpFactor(0);
+//     }
+//   });
+
+//   return (
+//     <mesh ref={walkerRef} position={walkerRef.current ? walkerRef.current.position : [0, 0, 0]} scale={[0.5, 0.5, 0.5]}>
+//       <sphereGeometry />
+//       <meshNormalMaterial />
+//     </mesh>
+//   );
+// }
 
 
