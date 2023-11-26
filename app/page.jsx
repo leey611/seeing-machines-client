@@ -2,9 +2,10 @@
 
 import dynamic from 'next/dynamic'
 import { useState, useEffect, useRef, Suspense } from 'react'
-import { useThree } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { gsap } from "gsap";
 import { useMousePosition } from 'utils';
+import { MathUtils, Vector3 } from 'three';
 
 const View = dynamic(() => import('@/components/canvas/View').then((mod) => mod.View), {
   ssr: false,
@@ -93,6 +94,7 @@ export default function Page() {
       <View orbit className='relative h-full  w-full'>
         <Common color={'black'} />
         {boards?.map((board, i) => <Board onComplete={setAmountOfTilesCompleted} position={board} key={i} />)}
+        <Walker />
       </View>
     </>
   )
@@ -151,6 +153,48 @@ function Board(props) {
       <meshStandardMaterial color={near.hover ? "red" : "yellow"} />
     </mesh>
   )
+}
+
+function generateRandomPosition() {
+  return new Vector3(
+    MathUtils.randFloat(-10, 10),
+    MathUtils.randFloat(-10, 10),
+    0 // Fixed z-axis at 0
+  );
+}
+
+function Walker(props) {
+  const walkerRef = useRef();
+  const [targetPosition, setTargetPosition] = useState(generateRandomPosition());
+  const [lerpFactor, setLerpFactor] = useState(0);
+
+  useFrame(() => {
+    // Increment lerp factor
+    setLerpFactor((prevFactor) => Math.min(prevFactor + 0.01, 1));
+
+    // Lerp towards the target position
+    const newPosition = new Vector3().lerpVectors(
+      walkerRef.current.position,
+      targetPosition,
+      lerpFactor
+    );
+
+    // Update sphere position
+    walkerRef.current.position.copy(newPosition);
+
+    // If lerp is complete, generate a new random target position
+    if (lerpFactor === 1) {
+      setTargetPosition(generateRandomPosition());
+      setLerpFactor(0);
+    }
+  });
+
+  return (
+    <mesh ref={walkerRef} position={walkerRef.current ? walkerRef.current.position : [0, 0, 0]} scale={[0.5, 0.5, 0.5]}>
+      <sphereGeometry />
+      <meshNormalMaterial />
+    </mesh>
+  );
 }
 
 
