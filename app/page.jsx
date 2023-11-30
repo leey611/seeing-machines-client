@@ -1,9 +1,10 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useEffect, useRef, Suspense } from 'react'
-import { useThree } from '@react-three/fiber';
+import { useState, useEffect, useRef, forwardRef, Suspense } from 'react'
+import { useFrame, useThree } from '@react-three/fiber';
 import { gsap } from "gsap";
+import { Vector3 } from 'three';
 import { useMousePosition } from 'utils';
 
 const View = dynamic(() => import('@/components/canvas/View').then((mod) => mod.View), {
@@ -25,19 +26,24 @@ const Common = dynamic(() => import('@/components/canvas/View').then((mod) => mo
 
 export default function Page() {
   const [boards, setBoards] = useState([]);
-
+  const [deletables, setDeletables] = useState([])
+  const [gesture, setGesture] = useState("move")
+  const walkerRef = useRef()
   // Game state
   const [isCompleted, setIsCompleted] = useState(false);
   const [amountOfTilesCompleted, setAmountOfTilesCompleted] = useState(0);
   console.log(amountOfTilesCompleted)
   function createBoards() {
     const boardArray = []
+    const deletables = []
     for (let x = -10; x < 10; x++) {
       for (let y = -10; y < 10; y++) {
         boardArray.push([x, y, 0])
+        deletables.push(Math.random() > 0.5)
       }
     }
     setBoards(boardArray)
+    setDeletables(deletables)
   }
 
   const fetchData = async () => {
@@ -71,7 +77,35 @@ export default function Page() {
 
     socket.addEventListener('message', (event) => {
       const oscMessage = JSON.parse(event.data);
-      console.log('Received OSC message:', oscMessage);
+      //console.log('Received OSC message:', oscMessage);
+      if (oscMessage.address === '/position') {
+        const [x, y] = oscMessage.args
+        walkerRef.current.position.x = x
+        walkerRef.current.position.y = y
+        setGesture("move")
+      }
+
+      if (oscMessage.address === '/click') {
+        console.log('click', walkerRef.current.selectedCount)
+        // if 0 boards has been selected, enable to select
+        if (!walkerRef.current.selectedCount) {
+          console.log('init select')
+          const selectedPosition = new Vector3()
+          selectedPosition.copy(walkerRef.current.position);
+          walkerRef.current.selectPosition = selectedPosition
+          setGesture("click")
+        }
+      }
+
+      if (oscMessage.address === '/shoot') {
+        console.log('shoot', walkerRef.current.selectedCount)
+        // if 1 board is selected, either change its color or hide it
+        if (walkerRef.current.selectedCount) {
+          setGesture("shoot") // change the state
+        }
+
+      }
+
       // Handle the received OSC message in your React component
     });
 
@@ -88,11 +122,20 @@ export default function Page() {
       socket.close();
     };
   }, []);
+
   return (
     <>
       <View orbit className='relative h-full  w-full'>
         <Common color={'black'} />
-        {boards?.map((board, i) => <Board onComplete={setAmountOfTilesCompleted} position={board} key={i} />)}
+        {boards?.map((board, i) => <Board
+          onComplete={setAmountOfTilesCompleted}
+          position={board}
+          key={i}
+          ref={walkerRef}
+          gesture={gesture}
+          deletable={deletables[i]}
+        />)}
+        <Walker ref={walkerRef} />
       </View>
     </>
   )
@@ -110,26 +153,62 @@ const rotationTimeMap = (movement) => {
   return level
 }
 
-function Board(props) {
-  const { position, onComplete } = props
+const Board = forwardRef(function (props, walkerRef) {
+  const { position, deletable, onComplete, gesture } = props
   //console.log('mouse', mouse)
   const { direction, movement } = useMousePosition()
   const { count, duration } = rotationTimeMap(movement)//rotationTransformer(movement)
 
   //console.log(movement, rotationTimeMap(movement))
   const [scale] = useState([0.9, 0.9, 0.2])
+  const [color, setColor] = useState(deletable ? 'yellow' : 'white')
+  const [isSelected, setIsSelected] = useState(false)
+  const [visible, setVisible] = useState(true)
   const [near, setNear] = useState({ near: false, hover: false })
   const ref = useRef()
+
+  useEffect(() => {
+    if (visible) {
+      if (gesture === 'click' && !walkerRef.current.selectedCount) {
+        const boardVec = new Vector3(ref.current.position.x, ref.current.position.y, ref.current.position.z)
+        if (boardVec.distanceTo(walkerRef.current.selectPosition) < 0.5) {
+          setColor("red")
+          setIsSelected(true)
+          walkerRef.current.selectedCount = 1
+          walkerRef.current.selectPosition = null
+        }
+      }
+
+      if (isSelected && gesture === 'shoot') {
+        deletable ? setVisible(false) : setColor('blue')
+        setIsSelected(false)
+        walkerRef.current.selectedCount = 0
+      }
+
+    }
+
+  }, [gesture])
+
+  useFrame(() => {
+    const boardVec = new Vector3(ref.current.position.x, ref.current.position.y, ref.current.position.z)
+    const walkerVec = new Vector3(walkerRef.current.position.x, walkerRef.current.position.y, walkerRef.current.position.z)
+    const distance = walkerVec.distanceTo(boardVec)
+    if (distance < 0.5) {
+      setNear({ near: true, hover: true })
+    } else {
+      setNear(prev => ({ ...prev, hover: false }))
+    }
+  })
 
   useEffect(() => {
     if (!ref.current) return;
     if (near.near) {
       gsap.to(ref.current.rotation, {
-        y: direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
+        y: `+=${Math.PI}`,//direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
         ease: "elastic.out",
         delay: 0.03,
         // stagger: 2,
-        duration,
+        duration: 3,
         onComplete: () => {
           setNear(prev => ({ ...prev, near: false }))
 
@@ -144,13 +223,22 @@ function Board(props) {
       ref={ref}
       position={position}
       scale={scale}
-      onPointerEnter={() => { setNear({ near: true, hover: true }) }}
-      onPointerOut={() => { setNear(prev => ({ ...prev, hover: false })) }}
+      visible={visible}
     >
       <boxGeometry />
-      <meshStandardMaterial color={near.hover ? "red" : "yellow"} />
+      <meshStandardMaterial color={color} />
     </mesh>
   )
-}
+})
+
+
+const Walker = forwardRef(function (props, ref) {
+  return (
+    <mesh ref={ref} position={ref.current ? ref.current.position : [0, 0, 0]} scale={[0.5, 0.5, 0.5]}>
+      <sphereGeometry />
+      <meshNormalMaterial />
+    </mesh>
+  );
+})
 
 
