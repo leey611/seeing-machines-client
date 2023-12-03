@@ -5,7 +5,6 @@ import { useState, useEffect, useRef, forwardRef, Suspense } from 'react'
 import { useFrame, useThree } from '@react-three/fiber';
 import { gsap } from "gsap";
 import { Vector3 } from 'three';
-import { useMousePosition } from 'utils';
 
 const View = dynamic(() => import('@/components/canvas/View').then((mod) => mod.View), {
   ssr: false,
@@ -60,7 +59,6 @@ export default function Page() {
   useEffect(() => {
     createBoards()
     const socket = new WebSocket('ws://localhost:8080');
-
     // fetchData()
     // fetch gives us the first promise
     // response in fetch.json() gives us a second promise
@@ -78,10 +76,22 @@ export default function Page() {
     socket.addEventListener('message', (event) => {
       const oscMessage = JSON.parse(event.data);
       //console.log('Received OSC message:', oscMessage);
+      if (!walkerRef.current) return
       if (oscMessage.address === '/position') {
-        const [x, y] = oscMessage.args
-        walkerRef.current.position.x = x
-        walkerRef.current.position.y = y
+        const [xPos, yPos, xVelocity, yVelocity] = oscMessage.args
+        walkerRef.current.position.x = xPos
+        walkerRef.current.position.y = yPos
+        if (Math.abs(xVelocity) > Math.abs(yVelocity)) {
+          walkerRef.current.direction = xVelocity > 0 ? 'right' : 'left'
+          walkerRef.current.speed = xVelocity
+          walkerRef.current.absSpeed = Math.abs(xVelocity)
+        } else {
+          walkerRef.current.direction = yVelocity > 0 ? 'down' : 'up'
+          walkerRef.current.speed = yVelocity
+          walkerRef.current.absSpeed = Math.abs(yVelocity)
+        }
+
+
         setGesture("move")
       }
 
@@ -141,27 +151,24 @@ export default function Page() {
   )
 }
 
-const rotationTimeMap = (movement) => {
-  let level = { count: 1, duration: 4 }
-  if (movement < 100) {
-    level = { count: 1, duration: 4 }
-  } else if (movement >= 100 && movement < 300) {
-    level = { count: 2, duration: 3 }
-  } else if (movement > 300) {
-    level = { count: 3, duration: 3.5 }
+const mapSpeedRotation = (speed) => {
+  //console.log('speed', speed)
+  let level = { count: 1, ducation: 4 }
+  if (speed < 100) {
+    level = { count: 1, duration: 5 }
+  } else if (speed >= 300 && speed < 600) {
+    level = { count: 2, duration: 5 }
+  } else if (speed > 600) {
+    level = { count: 3, duration: 4.5 }
   }
   return level
 }
 
 const Board = forwardRef(function (props, walkerRef) {
   const { position, deletable, onComplete, gesture } = props
-  //console.log('mouse', mouse)
-  const { direction, movement } = useMousePosition()
-  const { count, duration } = rotationTimeMap(movement)//rotationTransformer(movement)
 
-  //console.log(movement, rotationTimeMap(movement))
   const [scale] = useState([0.9, 0.9, 0.2])
-  const [color, setColor] = useState(deletable ? 'yellow' : 'white')
+  const [color, setColor] = useState(deletable ? '#4d1782' : 'white')
   const [isSelected, setIsSelected] = useState(false)
   const [visible, setVisible] = useState(true)
   const [near, setNear] = useState({ near: false, hover: false })
@@ -203,19 +210,51 @@ const Board = forwardRef(function (props, walkerRef) {
   useEffect(() => {
     if (!ref.current) return;
     if (near.near) {
-      gsap.to(ref.current.rotation, {
-        y: `+=${Math.PI}`,//direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
-        ease: "elastic.out",
-        delay: 0.03,
-        // stagger: 2,
-        duration: 3,
-        onComplete: () => {
-          setNear(prev => ({ ...prev, near: false }))
+      const { count, duration } = mapSpeedRotation(walkerRef.current.absSpeed)
+      if (walkerRef.current.direction === 'right' || walkerRef.current.direction === 'left') {
 
-          // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
-          //onComplete(value => value + 1);
-        },
-      });
+        gsap.to(ref.current.rotation, {
+          y: walkerRef.current.direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
+          ease: "elastic.out",
+          delay: 0.03,
+          // stagger: 2,
+          duration,
+          onComplete: () => {
+            setNear(prev => ({ ...prev, near: false }))
+
+            // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
+            //onComplete(value => value + 1);
+          },
+        });
+      }
+      if (walkerRef.current.direction === 'up' || walkerRef.current.direction === 'down') {
+        gsap.to(ref.current.rotation, {
+          x: walkerRef.current.direction === 'down' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
+          ease: "elastic.out",
+          delay: 0.03,
+          // stagger: 2,
+          duration,
+          onComplete: () => {
+            setNear(prev => ({ ...prev, near: false }))
+
+            // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
+            //onComplete(value => value + 1);
+          },
+        });
+      }
+      // gsap.to(ref.current.rotation, {
+      //   y: getDirection(walkerRef.current.direction),//`+=${count * Math.PI}`,//walkerRef.current.direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
+      //   ease: "elastic.out",
+      //   delay: 0.03,
+      //   // stagger: 2,
+      //   duration: 3,
+      //   onComplete: () => {
+      //     setNear(prev => ({ ...prev, near: false }))
+
+      //     // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
+      //     //onComplete(value => value + 1);
+      //   },
+      // });
     }
   }, [near.near])
   return (
