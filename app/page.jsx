@@ -5,6 +5,9 @@ import { useState, useEffect, useRef, forwardRef, Suspense } from 'react'
 import { useFrame, useThree } from '@react-three/fiber';
 import { gsap } from "gsap";
 import { Vector3 } from 'three';
+import { Notes } from 'utils';
+// import * as Tone from 'tone'
+import * as Tone from "tone/build/esm/index"; //https://github.com/Tonejs/Tone.js/issues/973
 
 const View = dynamic(() => import('@/components/canvas/View').then((mod) => mod.View), {
   ssr: false,
@@ -31,7 +34,6 @@ export default function Page() {
   // Game state
   const [isCompleted, setIsCompleted] = useState(false);
   const [amountOfTilesCompleted, setAmountOfTilesCompleted] = useState(0);
-  console.log(amountOfTilesCompleted)
   function createBoards() {
     const boardArray = []
     const deletables = []
@@ -57,23 +59,23 @@ export default function Page() {
   }, [amountOfTilesCompleted]);
 
   useEffect(() => {
+    window.addEventListener('click', () => {
+      if (Tone.context.state !== 'running') {
+        Tone.start()
+      }
+    });
+
     createBoards()
     const socket = new WebSocket('ws://localhost:8080');
-    // fetchData()
-    // fetch gives us the first promise
-    // response in fetch.json() gives us a second promise
-
-    // const data = fetch("/")
-    //   .then(res => {
-    //     // This is a 2nd promise
-    //     res.json().then(d => console.log(d))
-    //   });
 
     socket.addEventListener('open', (event) => {
       console.log('WebSocket connection opened:', event);
     });
 
     socket.addEventListener('message', (event) => {
+      if (Tone.context.state !== 'running') {
+        Tone.start()
+      }
       const oscMessage = JSON.parse(event.data);
       //console.log('Received OSC message:', oscMessage);
       if (!walkerRef.current) return
@@ -90,8 +92,6 @@ export default function Page() {
           walkerRef.current.speed = yVelocity
           walkerRef.current.absSpeed = Math.abs(yVelocity)
         }
-
-
         setGesture("move")
       }
 
@@ -113,9 +113,7 @@ export default function Page() {
         if (walkerRef.current.selectedCount) {
           setGesture("shoot") // change the state
         }
-
       }
-
       // Handle the received OSC message in your React component
     });
 
@@ -144,6 +142,7 @@ export default function Page() {
           ref={walkerRef}
           gesture={gesture}
           deletable={deletables[i]}
+          idx={i}
         />)}
         <Walker ref={walkerRef} />
       </View>
@@ -165,8 +164,7 @@ const mapSpeedRotation = (speed) => {
 }
 
 const Board = forwardRef(function (props, walkerRef) {
-  const { position, deletable, onComplete, gesture } = props
-
+  const { position, deletable, onComplete, gesture, idx } = props
   const [scale] = useState([0.9, 0.9, 0.2])
   const [color, setColor] = useState(deletable ? '#4d1782' : 'white')
   const [isSelected, setIsSelected] = useState(false)
@@ -176,6 +174,7 @@ const Board = forwardRef(function (props, walkerRef) {
 
   useEffect(() => {
     if (visible) {
+      let player
       if (gesture === 'click' && !walkerRef.current.selectedCount) {
         const boardVec = new Vector3(ref.current.position.x, ref.current.position.y, ref.current.position.z)
         if (boardVec.distanceTo(walkerRef.current.selectPosition) < 0.5) {
@@ -183,17 +182,37 @@ const Board = forwardRef(function (props, walkerRef) {
           setIsSelected(true)
           walkerRef.current.selectedCount = 1
           walkerRef.current.selectPosition = null
+          if (Tone.context.state === 'running') {
+            player = new Tone.Player({
+              url: '/sounds/click.wav',
+              autostart: true,
+            }).toDestination();
+          }
         }
       }
 
       if (isSelected && gesture === 'shoot') {
-        deletable ? setVisible(false) : setColor('blue')
+        if (deletable) {
+          setVisible(false)
+          if (Tone.context.state === 'running') {
+            player = new Tone.Player({
+              url: '/sounds/shoot_delete.wav',
+              autostart: true,
+            }).toDestination();
+          }
+        } else {
+          setColor('blue')
+          if (Tone.context.state === 'running') {
+            player = new Tone.Player({
+              url: '/sounds/shoot.wav',
+              autostart: true,
+            }).toDestination();
+          }
+        }
         setIsSelected(false)
         walkerRef.current.selectedCount = 0
       }
-
     }
-
   }, [gesture])
 
   useFrame(() => {
@@ -201,18 +220,47 @@ const Board = forwardRef(function (props, walkerRef) {
     const walkerVec = new Vector3(walkerRef.current.position.x, walkerRef.current.position.y, walkerRef.current.position.z)
     const distance = walkerVec.distanceTo(boardVec)
     if (distance < 0.5) {
-      setNear({ near: true, hover: true })
+      // setNear({ near: true, hover: true })
+      setNear(prev => ({ ...prev, near: true, hover: true }))
+
     } else {
       setNear(prev => ({ ...prev, hover: false }))
+
     }
   })
 
   useEffect(() => {
     if (!ref.current) return;
+    let nearSynth
     if (near.near) {
+      if (Tone.context.state === 'running') {
+        nearSynth = nearSynth || new Tone.FMSynth({
+          oscillator: {
+            type: 'sine', // Experiment with different types: 'sine', 'square', 'sawtooth', 'triangle'
+          },
+          detune: 0,
+          harmonicity: 20,
+          envelope: {
+            attack: 0.01,
+            decay: 0.2,
+            sustain: 0.3,
+            release: 0.25, // Adjust release time for a longer, lingering sound
+          },
+          modulationEnvelope: {
+            attack: 0.1,
+            attackCurve: "linear",
+            decay: 0.01,
+            decayCurve: "exponential",
+            release: 0.25,
+            releaseCurve: "exponential",
+            sustain: 0.5
+          },
+          modulationIndex: 2.22
+        }).toDestination();
+        nearSynth.triggerAttackRelease(Notes[idx % Notes.length], '8n')
+      }
       const { count, duration } = mapSpeedRotation(walkerRef.current.absSpeed)
       if (walkerRef.current.direction === 'right' || walkerRef.current.direction === 'left') {
-
         gsap.to(ref.current.rotation, {
           y: walkerRef.current.direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
           ease: "elastic.out",
@@ -221,7 +269,7 @@ const Board = forwardRef(function (props, walkerRef) {
           duration,
           onComplete: () => {
             setNear(prev => ({ ...prev, near: false }))
-
+            if (nearSynth) nearSynth.dispose()
             // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
             //onComplete(value => value + 1);
           },
@@ -236,25 +284,12 @@ const Board = forwardRef(function (props, walkerRef) {
           duration,
           onComplete: () => {
             setNear(prev => ({ ...prev, near: false }))
-
+            if (nearSynth) nearSynth.dispose()
             // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
             //onComplete(value => value + 1);
           },
         });
       }
-      // gsap.to(ref.current.rotation, {
-      //   y: getDirection(walkerRef.current.direction),//`+=${count * Math.PI}`,//walkerRef.current.direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
-      //   ease: "elastic.out",
-      //   delay: 0.03,
-      //   // stagger: 2,
-      //   duration: 3,
-      //   onComplete: () => {
-      //     setNear(prev => ({ ...prev, near: false }))
-
-      //     // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
-      //     //onComplete(value => value + 1);
-      //   },
-      // });
     }
   }, [near.near])
   return (
@@ -265,7 +300,7 @@ const Board = forwardRef(function (props, walkerRef) {
       visible={visible}
     >
       <boxGeometry />
-      <meshStandardMaterial color={color} />
+      <meshStandardMaterial color={color} transparent={true} opacity={near.hover ? 0.5 : 1} />
     </mesh>
   )
 })
@@ -273,7 +308,7 @@ const Board = forwardRef(function (props, walkerRef) {
 
 const Walker = forwardRef(function (props, ref) {
   return (
-    <mesh ref={ref} position={ref.current ? ref.current.position : [0, 0, 0]} scale={[0.5, 0.5, 0.5]}>
+    <mesh ref={ref} position={ref.current ? ref.current.position : [0, 0, 0]} scale={[0.2, 0.2, 0.2]} visible={false}>
       <sphereGeometry />
       <meshNormalMaterial />
     </mesh>
