@@ -209,6 +209,8 @@ const Board = forwardRef(function (props, walkerRef) {
       setVisible(true)
       setIsSelected(false)
       setColor(deletable ? '#4d1782' : 'white')
+      walkerRef.current.selectPosition = null
+      walkerRef.current.selectedCount = 0
     }
   }, [restart])
 

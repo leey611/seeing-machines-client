@@ -33,7 +33,7 @@ export const useMousePosition = () => {
     return mousePosition;
 };
 
-export const COLORS = "9b5de5-f15bb5-fee440-00bbf9-00f5d4".split('-').map(a => '#' + a)
+export const COLORS = "ff7b00-ff8800-ff9500-ffa200-ffaa00-ffb700-ffc300-ffd000-ffdd00-ffea00".split('-').map(a => '#' + a)
 
 export const ITP_ARR = [75, 95, 115, 94, 93, 92, 72, 112, 155, 175, 195, 174, 173, 172, 235, 234, 233, 232, 255, 275, 274, 273, 253, 169, 148, 127, 106, 144, 164, 184, 163, 162, 141, 161, 181, 224, 223, 222, 221, 243, 263, 284, 283, 282, 281, 344, 323, 322, 321, 342, 363, 362, 361]
 
