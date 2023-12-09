@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, forwardRef, Suspense } from 'react'
 import { useFrame, useThree } from '@react-three/fiber';
 import { gsap } from "gsap";
 import { Vector3 } from 'three';
-import { Notes } from 'utils';
+import { COLORS, ITP_SET, Notes } from 'utils';
 // import * as Tone from 'tone'
 import * as Tone from "tone/build/esm/index"; //https://github.com/Tonejs/Tone.js/issues/973
 
@@ -29,22 +29,36 @@ const Common = dynamic(() => import('@/components/canvas/View').then((mod) => mo
 export default function Page() {
   const [boards, setBoards] = useState([]);
   const [deletables, setDeletables] = useState([])
+  const [restart, setRestart] = useState(false)
   const [gesture, setGesture] = useState("move")
   const walkerRef = useRef()
   // Game state
   const [isCompleted, setIsCompleted] = useState(false);
   const [amountOfTilesCompleted, setAmountOfTilesCompleted] = useState(0);
   function createBoards() {
+    if (Tone.context.state === 'running') {
+      let player = new Tone.Player({
+        url: '/sounds/restart.wav',
+        autostart: true,
+      }).toDestination();
+    }
+    console.log('create boards function')
+    let idx = 0
     const boardArray = []
     const deletables = []
     for (let x = -10; x < 10; x++) {
       for (let y = -10; y < 10; y++) {
         boardArray.push([x, y, 0])
-        deletables.push(Math.random() > 0.5)
+        deletables.push(ITP_SET.has(idx) ? true : false)
+        idx++
+        //deletables.push(Math.random() > 0.5)
       }
     }
     setBoards(boardArray)
     setDeletables(deletables)
+    setTimeout(() => {
+      setRestart(false)
+    }, 1000)
   }
 
   const fetchData = async () => {
@@ -93,6 +107,7 @@ export default function Page() {
           walkerRef.current.absSpeed = Math.abs(yVelocity)
         }
         setGesture("move")
+        //if (restart) setRestart(false)
       }
 
       if (oscMessage.address === '/click') {
@@ -114,6 +129,13 @@ export default function Page() {
           setGesture("shoot") // change the state
         }
       }
+
+      if (oscMessage.address === '/clap') {
+        console.log('clap, restart state', restart)
+        if (!restart) {
+          setRestart(true)
+        }
+      }
       // Handle the received OSC message in your React component
     });
 
@@ -130,9 +152,16 @@ export default function Page() {
       socket.close();
     };
   }, []);
+  useEffect(() => {
+    if (restart) {
+      console.log('create boards useeffect', restart)
+      createBoards()
+    }
+  }, [restart])
 
   return (
     <>
+      {/* <button onClick={createBoards}>click</button> */}
       <View orbit className='relative h-full  w-full'>
         <Common color={'black'} />
         {boards?.map((board, i) => <Board
@@ -141,7 +170,9 @@ export default function Page() {
           key={i}
           ref={walkerRef}
           gesture={gesture}
+          //deletable={ITP_SET.has(i) ? true : false}
           deletable={deletables[i]}
+          restart={restart}
           idx={i}
         />)}
         <Walker ref={walkerRef} />
@@ -164,13 +195,22 @@ const mapSpeedRotation = (speed) => {
 }
 
 const Board = forwardRef(function (props, walkerRef) {
-  const { position, deletable, onComplete, gesture, idx } = props
+  const { position, deletable, onComplete, gesture, restart, idx } = props
   const [scale] = useState([0.9, 0.9, 0.2])
   const [color, setColor] = useState(deletable ? '#4d1782' : 'white')
   const [isSelected, setIsSelected] = useState(false)
   const [visible, setVisible] = useState(true)
   const [near, setNear] = useState({ near: false, hover: false })
   const ref = useRef()
+
+  useEffect(() => {
+    if (restart) {
+      console.log('restart in board')
+      setVisible(true)
+      setIsSelected(false)
+      setColor(deletable ? '#4d1782' : 'white')
+    }
+  }, [restart])
 
   useEffect(() => {
     if (visible) {
@@ -201,7 +241,10 @@ const Board = forwardRef(function (props, walkerRef) {
             }).toDestination();
           }
         } else {
-          setColor('blue')
+          const updatedColor = gsap.utils.random(COLORS)
+          //console.log('update color', updatedColor)
+          //setColor('blue')
+          setColor(updatedColor)
           if (Tone.context.state === 'running') {
             player = new Tone.Player({
               url: '/sounds/shoot.wav',
@@ -298,6 +341,11 @@ const Board = forwardRef(function (props, walkerRef) {
       position={position}
       scale={scale}
       visible={visible}
+    // onClick={() => {
+    //   ITP.push(idx)
+    //   console.log(ITP)
+    //   setColor('black')
+    // }}
     >
       <boxGeometry />
       <meshStandardMaterial color={color} transparent={true} opacity={near.hover ? 0.5 : 1} />
