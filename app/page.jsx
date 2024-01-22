@@ -1,10 +1,13 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, useEffect, useRef, Suspense } from 'react'
-import { useThree } from '@react-three/fiber';
+import { useState, useEffect, useRef, forwardRef, Suspense } from 'react'
+import { useFrame, useThree } from '@react-three/fiber';
 import { gsap } from "gsap";
-import { useMousePosition } from 'utils';
+import { Vector3 } from 'three';
+import { COLORS, ITP_SET, Notes } from 'utils';
+// import * as Tone from 'tone'
+import * as Tone from "tone/build/esm/index"; //https://github.com/Tonejs/Tone.js/issues/973
 
 const View = dynamic(() => import('@/components/canvas/View').then((mod) => mod.View), {
   ssr: false,
@@ -25,19 +28,37 @@ const Common = dynamic(() => import('@/components/canvas/View').then((mod) => mo
 
 export default function Page() {
   const [boards, setBoards] = useState([]);
-
+  const [deletables, setDeletables] = useState([])
+  const [restart, setRestart] = useState(false)
+  const [gesture, setGesture] = useState("move")
+  const walkerRef = useRef()
   // Game state
   const [isCompleted, setIsCompleted] = useState(false);
   const [amountOfTilesCompleted, setAmountOfTilesCompleted] = useState(0);
-  console.log(amountOfTilesCompleted)
   function createBoards() {
+    if (Tone.context.state === 'running') {
+      let player = new Tone.Player({
+        url: '/sounds/restart.wav',
+        autostart: true,
+      }).toDestination();
+    }
+    console.log('create boards function')
+    let idx = 0
     const boardArray = []
-    for (let x = -10; x < 10; x++) {
-      for (let y = -10; y < 10; y++) {
+    const deletables = []
+    for (let x = -10; x < 11; x++) {
+      for (let y = -10; y < 11; y++) {
         boardArray.push([x, y, 0])
+        deletables.push(ITP_SET.has(idx) ? true : false)
+        idx++
+        //deletables.push(Math.random() > 0.5)
       }
     }
     setBoards(boardArray)
+    setDeletables(deletables)
+    setTimeout(() => {
+      setRestart(false)
+    }, 1500)
   }
 
   const fetchData = async () => {
@@ -52,26 +73,75 @@ export default function Page() {
   }, [amountOfTilesCompleted]);
 
   useEffect(() => {
+    window.addEventListener('click', () => {
+      if (Tone.context.state !== 'running') {
+        Tone.start()
+      }
+    });
+
     createBoards()
     const socket = new WebSocket('ws://localhost:8080');
-
-    // fetchData()
-    // fetch gives us the first promise
-    // response in fetch.json() gives us a second promise
-
-    // const data = fetch("/")
-    //   .then(res => {
-    //     // This is a 2nd promise
-    //     res.json().then(d => console.log(d))
-    //   });
 
     socket.addEventListener('open', (event) => {
       console.log('WebSocket connection opened:', event);
     });
 
     socket.addEventListener('message', (event) => {
+      if (Tone.context.state !== 'running') {
+        Tone.start()
+      }
       const oscMessage = JSON.parse(event.data);
-      console.log('Received OSC message:', oscMessage);
+      //console.log('Received OSC message:', oscMessage);
+      if (!walkerRef.current) return
+      if (oscMessage.address === '/position') {
+        const [xPos, yPos, xVelocity, yVelocity] = oscMessage.args
+        walkerRef.current.position.x = xPos
+        walkerRef.current.position.y = yPos
+        if (Math.abs(xVelocity) > Math.abs(yVelocity)) {
+          walkerRef.current.direction = xVelocity > 0 ? 'right' : 'left'
+          walkerRef.current.speed = xVelocity
+          walkerRef.current.absSpeed = Math.abs(xVelocity)
+        } else {
+          walkerRef.current.direction = yVelocity > 0 ? 'down' : 'up'
+          walkerRef.current.speed = yVelocity
+          walkerRef.current.absSpeed = Math.abs(yVelocity)
+        }
+        setGesture("move")
+        //if (restart) setRestart(false)
+      }
+
+      if (oscMessage.address === '/click') {
+        console.log('click', walkerRef.current.selectedCount)
+        // if 0 boards has been selected, enable to select
+        if (!walkerRef.current.selectedCount) {
+          console.log('init select')
+          const selectedPosition = new Vector3()
+          selectedPosition.copy(walkerRef.current.position);
+          walkerRef.current.selectPosition = selectedPosition
+          setGesture("click")
+        }
+      }
+
+      if (oscMessage.address === '/shoot') {
+        console.log('shoot', walkerRef.current.selectedCount)
+        // if 1 board is selected, either change its color or hide it
+        if (walkerRef.current.selectedCount) {
+          setGesture("shoot") // change the state
+        }
+      }
+
+      if (oscMessage.address === '/clap') {
+        console.log('Received OSC message clap', oscMessage);
+        console.log('clap, restart state', restart)
+        if (!restart) {
+          if (oscMessage.args[0] < 30) {
+            //if (!restart) {
+            setRestart(true)
+            //}
+          }
+        }
+
+      }
       // Handle the received OSC message in your React component
     });
 
@@ -88,55 +158,201 @@ export default function Page() {
       socket.close();
     };
   }, []);
+  useEffect(() => {
+    if (restart) {
+      console.log('create boards useeffect', restart)
+      createBoards()
+    }
+  }, [restart])
+
   return (
     <>
+      <div className='top-3 fixed z-10 w-full text-center text-white gap-8 flex justify-center mt-6'>
+        <div>
+          <div className='text-6xl mb-4'>🤜</div>
+          <div className='text-4xl mb-2'>⬜ &rarr; 🟥</div>
+          <div className='text-4xl'>🟪 &rarr; 🟥</div>
+        </div>
+        <div>
+          <div className='text-6xl mb-4'>👉</div>
+          <div className='text-4xl mb-2'>🟥 &rarr; 🟨</div>
+          <div className='text-4xl'>🟥 &rarr; ⬛</div>
+        </div>
+      </div>
+      {/* <button onClick={createBoards}>click</button> */}
       <View orbit className='relative h-full  w-full'>
         <Common color={'black'} />
-        {boards?.map((board, i) => <Board onComplete={setAmountOfTilesCompleted} position={board} key={i} />)}
+        {boards?.map((board, i) => <Board
+          onComplete={setAmountOfTilesCompleted}
+          position={board}
+          key={i}
+          ref={walkerRef}
+          gesture={gesture}
+          //deletable={ITP_SET.has(i) ? true : false}
+          deletable={deletables[i]}
+          restart={restart}
+          idx={i}
+        />)}
+        <Walker ref={walkerRef} />
       </View>
     </>
   )
 }
 
-const rotationTimeMap = (movement) => {
-  let level = { count: 1, duration: 4 }
-  if (movement < 100) {
-    level = { count: 1, duration: 4 }
-  } else if (movement >= 100 && movement < 300) {
-    level = { count: 2, duration: 3 }
-  } else if (movement > 300) {
-    level = { count: 3, duration: 3.5 }
+const mapSpeedRotation = (speed) => {
+  //console.log('speed', speed)
+  let level = { count: 1, ducation: 4 }
+  if (speed < 100) {
+    level = { count: 1, duration: 5 }
+  } else if (speed >= 100 && speed < 600) {
+    level = { count: 2, duration: 5 }
+  } else if (speed > 600) {
+    level = { count: 3, duration: 4.5 }
   }
   return level
 }
-
-function Board(props) {
-  const { position, onComplete } = props
-  //console.log('mouse', mouse)
-  const { direction, movement } = useMousePosition()
-  const { count, duration } = rotationTimeMap(movement)//rotationTransformer(movement)
-
-  //console.log(movement, rotationTimeMap(movement))
+let ITP = []
+const Board = forwardRef(function (props, walkerRef) {
+  const { position, deletable, onComplete, gesture, restart, idx } = props
   const [scale] = useState([0.9, 0.9, 0.2])
+  const [color, setColor] = useState(deletable ? '#4d1782' : 'white')
+  const [isSelected, setIsSelected] = useState(false)
+  const [visible, setVisible] = useState(true)
   const [near, setNear] = useState({ near: false, hover: false })
   const ref = useRef()
 
   useEffect(() => {
-    if (!ref.current) return;
-    if (near.near) {
-      gsap.to(ref.current.rotation, {
-        y: direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
-        ease: "elastic.out",
-        delay: 0.03,
-        // stagger: 2,
-        duration,
-        onComplete: () => {
-          setNear(prev => ({ ...prev, near: false }))
+    if (restart) {
+      console.log('restart in board')
+      setVisible(true)
+      setIsSelected(false)
+      setColor(deletable ? '#4d1782' : 'white')
+      walkerRef.current.selectPosition = null
+      walkerRef.current.selectedCount = 0
+    }
+  }, [restart])
 
-          // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
-          //onComplete(value => value + 1);
-        },
-      });
+  useEffect(() => {
+    if (visible) {
+      let player
+      if (gesture === 'click' && !walkerRef.current.selectedCount) {
+        const boardVec = new Vector3(ref.current.position.x, ref.current.position.y, ref.current.position.z)
+        if (boardVec.distanceTo(walkerRef.current.selectPosition) < 0.5) {
+          setColor("red")
+          setIsSelected(true)
+          walkerRef.current.selectedCount = 1
+          walkerRef.current.selectPosition = null
+          if (Tone.context.state === 'running') {
+            player = new Tone.Player({
+              url: '/sounds/click.wav',
+              autostart: true,
+            }).toDestination();
+          }
+        }
+      }
+
+      if (isSelected && gesture === 'shoot') {
+        if (deletable) {
+          setVisible(false)
+          if (Tone.context.state === 'running') {
+            player = new Tone.Player({
+              url: '/sounds/shoot_delete.wav',
+              autostart: true,
+            }).toDestination();
+          }
+        } else {
+          const updatedColor = gsap.utils.random(COLORS)
+          //console.log('update color', updatedColor)
+          //setColor('blue')
+          setColor(updatedColor)
+          if (Tone.context.state === 'running') {
+            player = new Tone.Player({
+              url: '/sounds/shoot.wav',
+              autostart: true,
+            }).toDestination();
+          }
+        }
+        setIsSelected(false)
+        walkerRef.current.selectedCount = 0
+      }
+    }
+  }, [gesture])
+
+  useFrame(() => {
+    const boardVec = new Vector3(ref.current.position.x, ref.current.position.y, ref.current.position.z)
+    const walkerVec = new Vector3(walkerRef.current.position.x, walkerRef.current.position.y, walkerRef.current.position.z)
+    const distance = walkerVec.distanceTo(boardVec)
+    if (distance < 0.4) {
+      // setNear({ near: true, hover: true })
+      setNear(prev => ({ ...prev, near: true, hover: true }))
+
+    } else {
+      setNear(prev => ({ ...prev, hover: false }))
+
+    }
+  })
+
+  useEffect(() => {
+    if (!ref.current) return;
+    let nearSynth
+    if (near.near) {
+      if (Tone.context.state === 'running') {
+        nearSynth = nearSynth || new Tone.FMSynth({
+          oscillator: {
+            type: 'sine', // Experiment with different types: 'sine', 'square', 'sawtooth', 'triangle'
+          },
+          detune: 0,
+          harmonicity: 20,
+          envelope: {
+            attack: 0.01,
+            decay: 0.2,
+            sustain: 0.3,
+            release: 0.25, // Adjust release time for a longer, lingering sound
+          },
+          modulationEnvelope: {
+            attack: 0.1,
+            attackCurve: "linear",
+            decay: 0.01,
+            decayCurve: "exponential",
+            release: 0.25,
+            releaseCurve: "exponential",
+            sustain: 0.5
+          },
+          modulationIndex: 2.22
+        }).toDestination();
+        nearSynth.triggerAttackRelease(Notes[idx % Notes.length], '8n')
+      }
+      const { count, duration } = mapSpeedRotation(walkerRef.current.absSpeed)
+      if (walkerRef.current.direction === 'right' || walkerRef.current.direction === 'left') {
+        gsap.to(ref.current.rotation, {
+          y: walkerRef.current.direction === 'right' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
+          ease: "elastic.out",
+          delay: 0.03,
+          // stagger: 2,
+          duration,
+          onComplete: () => {
+            setNear(prev => ({ ...prev, near: false }))
+            if (nearSynth) nearSynth.dispose()
+            // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
+            //onComplete(value => value + 1);
+          },
+        });
+      }
+      if (walkerRef.current.direction === 'up' || walkerRef.current.direction === 'down') {
+        gsap.to(ref.current.rotation, {
+          x: walkerRef.current.direction === 'down' ? `+=${count * Math.PI}` : `-=${count * Math.PI}`,
+          ease: "elastic.out",
+          delay: 0.03,
+          // stagger: 2,
+          duration,
+          onComplete: () => {
+            setNear(prev => ({ ...prev, near: false }))
+            if (nearSynth) nearSynth.dispose()
+            // If this is a red tile (i.e a tile that needs to be flipped in order to win) -> then we increment!
+            //onComplete(value => value + 1);
+          },
+        });
+      }
     }
   }, [near.near])
   return (
@@ -144,13 +360,28 @@ function Board(props) {
       ref={ref}
       position={position}
       scale={scale}
-      onPointerEnter={() => { setNear({ near: true, hover: true }) }}
-      onPointerOut={() => { setNear(prev => ({ ...prev, hover: false })) }}
+      visible={visible}
+      onClick={() => {
+        ITP.push(idx)
+        console.log(ITP)
+        setColor(gsap.utils.random(COLORS))
+        // setColor('blue')
+      }}
     >
       <boxGeometry />
-      <meshStandardMaterial color={near.hover ? "red" : "yellow"} />
+      <meshStandardMaterial color={color} transparent={true} opacity={near.hover ? 0.5 : 1} />
     </mesh>
   )
-}
+})
+
+
+const Walker = forwardRef(function (props, ref) {
+  return (
+    <mesh ref={ref} position={ref.current ? ref.current.position : [0, 0, 0]} scale={[0.2, 0.2, 0.2]} visible={false}>
+      <sphereGeometry />
+      <meshNormalMaterial />
+    </mesh>
+  );
+})
 
 
