@@ -7,7 +7,7 @@ Pixie Panal is an interactive screen art installation in which a grid of virtual
 ## Technologies
 
 - **React-Three-Fiber:** create 3D web environment
-- **Tone.js:** A audio synthesis and sound playing
+- **Tone.js:** audio synthesis and sound playing
 - **LeapMotion:** hand position, movement, and gestures tracking
 - **OpenFrameworks:** sending LeapMotion data using OSC
 
