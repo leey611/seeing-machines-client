@@ -46,8 +46,8 @@ export default function Page() {
     let idx = 0
     const boardArray = []
     const deletables = []
-    for (let x = -10; x < 10; x++) {
-      for (let y = -10; y < 10; y++) {
+    for (let x = -10; x < 11; x++) {
+      for (let y = -10; y < 11; y++) {
         boardArray.push([x, y, 0])
         deletables.push(ITP_SET.has(idx) ? true : false)
         idx++
@@ -58,7 +58,7 @@ export default function Page() {
     setDeletables(deletables)
     setTimeout(() => {
       setRestart(false)
-    }, 1000)
+    }, 1500)
   }
 
   const fetchData = async () => {
@@ -131,10 +131,16 @@ export default function Page() {
       }
 
       if (oscMessage.address === '/clap') {
+        console.log('Received OSC message clap', oscMessage);
         console.log('clap, restart state', restart)
         if (!restart) {
-          setRestart(true)
+          if (oscMessage.args[0] < 30) {
+            //if (!restart) {
+            setRestart(true)
+            //}
+          }
         }
+
       }
       // Handle the received OSC message in your React component
     });
@@ -161,6 +167,18 @@ export default function Page() {
 
   return (
     <>
+      <div className='top-3 fixed z-10 w-full text-center text-white gap-8 flex justify-center mt-6'>
+        <div>
+          <div className='text-6xl mb-4'>🤜</div>
+          <div className='text-4xl mb-2'>⬜ &rarr; 🟥</div>
+          <div className='text-4xl'>🟪 &rarr; 🟥</div>
+        </div>
+        <div>
+          <div className='text-6xl mb-4'>👉</div>
+          <div className='text-4xl mb-2'>🟥 &rarr; 🟨</div>
+          <div className='text-4xl'>🟥 &rarr; ⬛</div>
+        </div>
+      </div>
       {/* <button onClick={createBoards}>click</button> */}
       <View orbit className='relative h-full  w-full'>
         <Common color={'black'} />
@@ -186,14 +204,14 @@ const mapSpeedRotation = (speed) => {
   let level = { count: 1, ducation: 4 }
   if (speed < 100) {
     level = { count: 1, duration: 5 }
-  } else if (speed >= 300 && speed < 600) {
+  } else if (speed >= 100 && speed < 600) {
     level = { count: 2, duration: 5 }
   } else if (speed > 600) {
     level = { count: 3, duration: 4.5 }
   }
   return level
 }
-
+let ITP = []
 const Board = forwardRef(function (props, walkerRef) {
   const { position, deletable, onComplete, gesture, restart, idx } = props
   const [scale] = useState([0.9, 0.9, 0.2])
@@ -264,7 +282,7 @@ const Board = forwardRef(function (props, walkerRef) {
     const boardVec = new Vector3(ref.current.position.x, ref.current.position.y, ref.current.position.z)
     const walkerVec = new Vector3(walkerRef.current.position.x, walkerRef.current.position.y, walkerRef.current.position.z)
     const distance = walkerVec.distanceTo(boardVec)
-    if (distance < 0.5) {
+    if (distance < 0.4) {
       // setNear({ near: true, hover: true })
       setNear(prev => ({ ...prev, near: true, hover: true }))
 
@@ -343,11 +361,12 @@ const Board = forwardRef(function (props, walkerRef) {
       position={position}
       scale={scale}
       visible={visible}
-    // onClick={() => {
-    //   ITP.push(idx)
-    //   console.log(ITP)
-    //   setColor('black')
-    // }}
+      onClick={() => {
+        ITP.push(idx)
+        console.log(ITP)
+        setColor(gsap.utils.random(COLORS))
+        // setColor('blue')
+      }}
     >
       <boxGeometry />
       <meshStandardMaterial color={color} transparent={true} opacity={near.hover ? 0.5 : 1} />
